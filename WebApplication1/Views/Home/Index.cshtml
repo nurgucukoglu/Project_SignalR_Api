@@ -1,0 +1,227 @@
+﻿@{
+    ViewData["Title"] = "Home Page";
+}
+
+<script src="~/lib/microsoft/signalr/dist/browser/signalr.min.js"></script>
+
+
+@section Scripts
+{
+          <script>
+
+     $(document).ready(()=>{
+         //signalr komutları başlıyor:
+            var connection = new signalR.HubConnectionBuilder()
+
+                    .withAutomaticReconnect([1000, 2000, 3000, 8000]) //otomatik bağlanma metodu. kere dener sonra bağlantıyı kapatır. içindeki parametreleri kaç ms de istek atacağı 
+            
+            .withUrl("https://localhost:44359/MyHub").build(); //bu adresteki portu sunucu olarak kullanıcak ve bu port üzerinden bir bağlantı oluşturacak. apinin localhast no.sunu copy paste
+
+             function statusShow(){
+            
+                $("#conStatus").text(connection.connectionState); //bağlantının durumunu gösterir. connect, disconnect, connecting vs
+                //durumunu yazdırır.
+            }
+            statusShow();
+       
+            connection.start().then(() => {
+                statusShow();
+                $("#loading").hide();
+                connection.invoke("GetNames");
+               
+            }).catch((err) => { console.log(err) } ); //hata gelirse consolda yazdırıcaz.
+
+
+            $("#btnSave").click(() => {  //butona basınca sayfadan gönderdiğin ismi consola yazdırmak
+                connection.invoke("SendName", $("#txtName").val())
+                    .catch((err) => {
+                        console.log(err)
+                    })
+            })
+
+            //inputtan isim gönderdiğim zaman onu bana geri versin
+            connection.on("ReceiveName",(name)=>{ //bu name myhub name.i
+                //console.log(name);
+                //konsolda yazdırmak yerine tabloda html.de yazdırıcaz
+                //alt gr+ ; ile `` ile backlink işareti içinde html yazdık javascript içinde
+
+                $("#namesList").append(`<li class="list-group-item">${name}</li>`)
+
+
+            })
+
+            connection.onreconnecting(err => { //bağlantı kesildiğinde tekrar bağlanmaya çalışırsa göstersin
+
+                $("#loading").show();
+                statusShow();
+                console.log(err);
+            })
+
+            connection.onreconnected(err => { //yeniden bağlantı kurabilirse de spinner gizlesin
+               
+                $("#loading").hide();
+                statusShow();
+                console.log(err);
+            })
+
+
+             //çağrı atarken invoke içinde metot ismini yazdım. 
+        //myhub içindeki classa verdiğim string ifade için on metodu kullanıyorum. bağlanmaya çalışırken içerdeki ismi
+
+
+            connection.on("ReceiveClientCount", (ClientCount) => {  //client sayısını yazdırıcaz.
+                $("#clientCount").text(ClientCount);
+            })
+
+
+            //odada kaç kişi varsa yazdır
+            connection.on("Notify", (countText) => {
+                $("#notify").html(`<div class="alert alert-success">${countText}</div>`);
+            })
+
+
+            connection.on("Error", (errorText) => {   //error text içeriği myhub'da yer alan SendName içindeki Error'dan gelecek
+                alert(errorText);
+                
+            })
+
+             connection.on("ReceiveNames",(names)=>{  //yeni bir client açtığımda önceki isimleri de görüyorum artık
+                $("#namesList").empty();//önce nameslist'in içini boşalt
+                names.forEach((item,index)=>{
+                    $("#namesList").append(`<li class="list-group-item">${item}</li>`);
+                })
+            })
+
+
+            $("#btnroomname").click(() => {  //bizim seçmiş olduğumuz radio daki değere göre o kişiyi ekleme yapacak
+                
+                let name = $("#txtName").val();
+                let roomname = $("input[type=radio]:checked").val();
+
+                if (roomname == null) {
+                    alert("Lütfen şehir seçimi yapınız");
+                }
+                else {
+                    connection.invoke("SendNameByGroup", name, roomname).catch((err) => {
+                        console.log(err)
+                    })
+                }
+            })
+
+
+
+            //şehire göre eklenmiş odadaki kişiler yazdırılacak
+            //Burada veritabanına kişileri ekleyecek.
+            connection.on("ReceiveMessageByGroup", (name, roomId) => {
+                let listName;
+                if (roomId == 1) {
+                    listName = "PazarlamaRoomList"
+                }
+                else {
+                    listName = "MuhasebeRoomList"
+                } 
+
+                $(`#${listName}`).append(`<li class="list-group-item">${name}</li>`)
+            })
+
+
+            //şimdi signalr üzerinden odalara ekleme çıkarma yapsın
+            //ve odalarda bulunna kişileri de gösterecek 
+
+            $("input[type=radio]").change(() => {
+                let value = $(`input[type=radio]:checked`).val();//seçili radio butonun durumunu değiştirir.
+                if (value = "Pazarlama") {
+                    //Ankara ise Pazarlama grubuna bağlanacak , hub signal r ile
+                    connection.invoke("AddToGroup", value);//C# kodundaki addtogrup stringe bağlanacak invoke ile
+                    connection.invoke("RemoveToGroup", "Muhasebe");//Diğer gruptanda çıkarmalı.
+                    //çünkü bir kişi aynı anda tek grupta olabilir. Yeni gruba katılmak istediğinde öncekinden
+                    //çıkarılmalı
+                }
+                else {
+                    //Muhasebe içinde aynısı
+                    connection.invoke("AddToGroup", value);//C# kodundaki addtogrup stringe bağlanacak invoke ile
+                    connection.invoke("RemoveToGroup", "Pazarlama");//Diğer gruptanda çıkarmalı.
+                }
+            })
+
+
+
+     })
+        </script>
+}
+
+<div class="row">
+    <div class="col-md-8 offset-2">
+
+        <input type="text" class="form-control" id="txtName" />
+        <hr />
+        <button class="btn btn-warning" id="btnSave">İsmi Kaydet</button>
+        <button class="btn btn-primary" id="btnroomname">Odaya Kişi Ekle</button>
+
+        <div class="alert alert-info mt-2">
+            <div class="float-left">
+                Bağlntı durumu:<strong id="conStatus"></strong>
+                Client Sayısı: <strong id="clientCount"></strong>
+            </div>
+             <!--spinning-->
+            <div class="float-right">
+                <div id="loading" class="spinner-border" role="status">
+                    <span class="visually-hidden"></span>
+
+                </div>
+
+            </div>
+            <div class="clearfix"></div>
+            </div>
+        <div id="notify">
+        </div>
+    </div>
+    <!--isimleri tabloda gösterme-->
+    <div class="col-md-8 offset-2">
+        <ul class="list-group" id="namesList"></ul>
+
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8 offset-2">
+
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="roomgroup" value="Pazarlama" />
+            <label class="form-check-label">Pazarlama Odası</label>
+
+        </div>
+
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="roomgroup" value="Muhasebe" />
+            <label class="form-check-label">Muhasebe Odası</label>
+
+        </div>
+
+
+
+
+    </div>
+
+
+    <!--odadaki kişiler yazdırılıyor.-->
+    <div class="col-md-8-offset-2">
+        <div class="row">
+            <div class="col-md-6">
+                <h3>Pazarlama Odası</h3>
+                <ul class="list-group" id="PazarlamaRoomList"></ul>
+
+            </div>
+
+            <div class="col-md-6">
+                <h3>Muhasebe Odası</h3>
+                <ul class="list-group" id="MuhasebeRoomList"></ul>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+  </div>
